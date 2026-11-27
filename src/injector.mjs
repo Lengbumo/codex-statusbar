@@ -25,7 +25,7 @@ const DEFAULT_MODEL = process.env.TURN_STATS_MODEL || "deepseek-v4-flash";
 // ---------- 页面注入脚本（幂等，随 tick 重发） ----------
 const INSTALL_SCRIPT = String.raw`
 (function () {
-  var VERSION = 22;
+  var VERSION = 23;
   if (window.__catStatuslineInstalled) {
     if (window.__catStatuslineVersion === VERSION) {
       try { window.__catStatuslineEnsure && window.__catStatuslineEnsure(); } catch (e) {}
@@ -49,7 +49,7 @@ const INSTALL_SCRIPT = String.raw`
       '#cat-statusline{position:fixed;left:12px;right:12px;bottom:6px;display:flex;align-items:center;padding:3px 12px 5px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Cascadia Mono",monospace;line-height:1.55;color:var(--color-token-text-secondary,#9aa1aa);white-space:nowrap;overflow:hidden;background:var(--color-token-bg-primary,#ffffff);border:1px solid color-mix(in srgb,var(--color-token-border,rgba(128,128,128,.28)) 55%,transparent);border-bottom:none;border-radius:10px 10px 0 0;user-select:none;z-index:2147483000;transition:bottom .12s ease}' + '#cat-statusline.csl-embedded{box-shadow:none}' + '#cat-statusline #cat-statusline-text{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}' +
       '#cat-statusline .csl-off{opacity:.55}' +
       '#cat-statusline .csl-seg{display:inline-flex;align-items:baseline;gap:3px}' +
-      '#cat-statusline .csl-ico{opacity:.7;display:inline-flex;align-items:center}' + '#cat-statusline .csl-ico svg{display:block}' +
+      '#cat-statusline.csl-incard{background:none;border:0;border-radius:0;box-shadow:none;backdrop-filter:none;z-index:auto}' + '#cat-statusline .csl-ico{opacity:.7;display:inline-flex;align-items:center}' + '#cat-statusline .csl-ico svg{display:block}' +
       '#cat-statusline .csl-lbl{opacity:.5;font-size:.92em}' +
       '#cat-statusline .csl-val{font-weight:600;color:var(--color-token-text-primary,#e6e8eb)}' +
       '#cat-statusline .csl-dot{opacity:.4;margin:0 7px}' +
@@ -121,6 +121,34 @@ const INSTALL_SCRIPT = String.raw`
     return null;
   }
 
+  // 输入卡片：圆角 >= 18 的可见祖先（ComposerLayoutRoot）
+  function composerCard() {
+    var pm = document.querySelector('.ProseMirror');
+    var el = pm;
+    for (var i = 0; el && i < 10; i++, el = el.parentElement) {
+      try {
+        var cs = getComputedStyle(el);
+        var r = el.getBoundingClientRect();
+        if (parseFloat(cs.borderRadius) >= 18 && r.width > 300 && r.height > 40 && r.top >= 0) return el;
+      } catch (e) {}
+    }
+    return null;
+  }
+
+  // 卡片内锚点：参数行（含完全访问/模型选择的那一行）——条插在它之后自占一行
+  function paramRow() {
+    var btn = [...document.querySelectorAll('button')].find(function (b) {
+      return (b.textContent || '').indexOf('完全访问') >= 0;
+    });
+    var el = btn;
+    while (el && el.parentElement) {
+      el = el.parentElement;
+      var r = el.getBoundingClientRect();
+      if (r.height > 24 && r.height < 60) return el;
+    }
+    return null;
+  }
+
   function ensure() {
     var node = document.getElementById('cat-statusline');
     if (!node) {
@@ -131,55 +159,57 @@ const INSTALL_SCRIPT = String.raw`
       txt.textContent = '— · — · 缓存 —% · 上下文 —/— · —→— · 本轮 — · 线程 —';
       node.appendChild(txt);
     }
-    // 永远 body 直属 + fixed 定位：绝不进入 React 管理的子树，
-    // 切换对话 / 页面重渲染都不会移除或隐藏状态栏（zcode overlay 同款策略）
-    if (node.parentNode !== document.body) document.body.appendChild(node);
-    node.style.display = '';
     // 对话切换即时通知：页面侧一检测到 convId 变化就发标记，注入器立刻刷新
     var cur = resolveConvId();
     if (cur !== window.__catStatuslineLastConv) {
       window.__catStatuslineLastConv = cur;
       try { console.log('__catStatuslineRefresh'); } catch (e) {}
     }
-    // 位置（zcode 形态）：与输入框面板同宽，作为面板内部最底部一行——
-    // 面板下缘空隙足够时放面板下方；不足 28px 时用"面板延伸行"：
-    // 贴窗口底 + 顶边伸入面板内衔接 + 背景色取面板实时计算值（同色无缝）+ 底部圆角匹配面板
-    var host = composerBox();
-    var r = host ? host.getBoundingClientRect() : null;
-    if (r && r.width > 300 && r.height > 40 && r.top >= 0 && window.innerHeight - r.top >= 60) {
-      var gap = window.innerHeight - r.bottom;
-      node.style.left = Math.max(8, r.left) + 'px';
-      node.style.right = 'auto';
-      node.style.width = r.width + 'px';
-      node.style.maxWidth = 'none';
-      node.classList.add('csl-embedded');
-      if (gap >= 28) {
-        node.style.bottom = Math.max(0, gap - 26) + 'px';
-        node.style.borderRadius = '10px';
-        node.style.border = '';
-        node.style.background = '';
-        node.style.paddingTop = '3px';
-        node.style.paddingBottom = '5px';
-      } else {
-        var pcs = getComputedStyle(host);
-        node.style.bottom = '0px';
-        node.style.borderRadius = '0 0 22px 22px';
-        node.style.border = 'none';
-        node.style.background = pcs.backgroundColor;
-        node.style.paddingTop = '2px';
-        node.style.paddingBottom = '2px';
+    // in-card 形态（zcode v80 同款机制）：条挂输入卡片内部参数行之后自占一行，
+    // position:static 跟随文档流、背景/边框/阴影全抹掉（卡片样式即条样式）；
+    // React 重渲染删掉就重插（observer + 1.5s 定时兜底），锚点对比避免反复重排
+    var card = composerCard();
+    var row = paramRow();
+    if (card && row && card.contains(row)) {
+      var wantPos = row.nextSibling;   // null = 卡片末尾
+      if (node.parentElement !== card || node.previousSibling !== row) {
+        if (row.nextSibling === node && node.nextSibling === null) {
+          // 已在参数行之后（快速路径）
+        } else {
+          row.parentElement.insertBefore(node, row.nextSibling);
+        }
       }
+      node.style.position = 'static';
+      node.style.background = 'none';
+      node.style.border = '0';
+      node.style.borderRadius = '0';
+      node.style.boxShadow = 'none';
+      node.style.backdropFilter = 'none';
+      node.style.padding = '1px 10px 2px';
+      node.style.width = '100%';
+      node.style.minWidth = '0';
+      node.style.maxWidth = 'none';
+      node.style.display = 'flex';
+      node.style.alignItems = 'center';
+      node.classList.add('csl-incard');
+      node.style.display = 'flex';
     } else {
+      // 兜底（宿主改版/无卡片）：胶囊条 fixed 横跨窗口底部
+      if (node.parentElement !== document.body) document.body.appendChild(node);
+      node.style.position = 'fixed';
       node.style.left = '12px';
       node.style.right = '12px';
       node.style.width = 'auto';
-      node.style.maxWidth = 'none';
       node.style.bottom = '6px';
       node.style.borderRadius = '10px';
       node.style.border = '';
       node.style.background = '';
-      node.classList.remove('csl-embedded');
+      node.style.padding = '3px 12px 5px';
+      node.classList.remove('csl-incard');
     }
+    node.style.display = 'flex';
+    node.style.alignItems = 'center';
+    node.style.zIndex = node.classList.contains('csl-incard') ? 'auto' : '2147483000';
   }
 
   window.__catStatuslineEnsure = ensure;
