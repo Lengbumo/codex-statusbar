@@ -25,7 +25,7 @@ const DEFAULT_MODEL = process.env.TURN_STATS_MODEL || "deepseek-v4-flash";
 // ---------- 页面注入脚本（幂等，随 tick 重发） ----------
 const INSTALL_SCRIPT = String.raw`
 (function () {
-  var VERSION = 13;
+  var VERSION = 15;
   if (window.__catStatuslineInstalled) {
     if (window.__catStatuslineVersion === VERSION) {
       try { window.__catStatuslineEnsure && window.__catStatuslineEnsure(); } catch (e) {}
@@ -48,7 +48,7 @@ const INSTALL_SCRIPT = String.raw`
       '#cat-statusline{position:fixed;left:12px;right:12px;bottom:6px;display:flex;align-items:center;padding:3px 12px 5px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Cascadia Mono",monospace;line-height:1.55;color:var(--color-token-text-secondary,#9aa1aa);white-space:nowrap;overflow:hidden;background:var(--color-token-bg-primary,#ffffff);border:1px solid color-mix(in srgb,var(--color-token-border,rgba(128,128,128,.28)) 55%,transparent);border-bottom:none;border-radius:10px 10px 0 0;user-select:none;z-index:2147483000;transition:bottom .12s ease}' + '#cat-statusline.csl-embedded{box-shadow:none}' + '#cat-statusline #cat-statusline-text{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}' +
       '#cat-statusline .csl-off{opacity:.55}' +
       '#cat-statusline .csl-seg{display:inline-flex;align-items:baseline;gap:3px}' +
-      '#cat-statusline .csl-ico{opacity:.7;font-size:.92em}' +
+      '#cat-statusline .csl-ico{opacity:.7;display:inline-flex;align-items:center}' + '#cat-statusline .csl-ico svg{width:17px;height:17px;display:block}' +
       '#cat-statusline .csl-lbl{opacity:.5;font-size:.92em}' +
       '#cat-statusline .csl-val{font-weight:600;color:var(--color-token-text-primary,#e6e8eb)}' +
       '#cat-statusline .csl-dot{opacity:.4;margin:0 7px}' +
@@ -226,7 +226,7 @@ const INSTALL_SCRIPT = String.raw`
       var p = arr[i];
       if (!p || (p.key !== 'wait' && !conf.show[p.key])) continue;
       html += '<span class="csl-seg ' + (p.cls || '') + '"' + (p.detail ? ' title="' + escapeHtml(p.detail) + '"' : '') + '>'
-        + (p.icon ? '<span class="csl-ico">' + escapeHtml(p.icon) + '</span>' : '')
+        + (p.icon ? '<span class="csl-ico">' + (p.icon.indexOf('<svg') === 0 ? p.icon : escapeHtml(p.icon)) + '</span>' : '')
         + (p.label ? '<span class="csl-lbl">' + escapeHtml(p.label) + '</span>' : '')
         + '<span class="csl-val">' + escapeHtml(p.text) + '</span>'
         + (p.sub ? '<span class="csl-sub">' + escapeHtml(p.sub) + '</span>' : '')
@@ -504,6 +504,30 @@ function readRateCard() {
   }
 }
 
+// 指标图标：统一 SVG 绘制（字符 emoji 在不同字体下渲染不一致，此坑在悬浮窗版已踩过）。
+// viewBox 0 0 24 24，样式表固定 17px，stroke 用 currentColor 自动适配明暗主题。
+const CSL_ICONS = {
+  bolt: '<path d="M13 2 4.5 13.5h6L11 22l8.5-11.5h-6L13 2z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>',
+  bubble: '<path d="M4 5.5h16v11H9l-5 4v-15z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>',
+  chat: '<path d="M20 5H8L4 9v10h5l2-2h9V5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M8 9.5h8M8 12.5h5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>',
+  gauge: '<path d="M5 19a8.5 8.5 0 1 1 14 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M12 13.5 15.5 9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
+  wrench: '<path d="M14.5 6.5a4.5 4.5 0 0 1 5.7-4.3l-3.2 3.2 2.6 2.6L22.8 4.8a4.5 4.5 0 0 1-5.9 5.6L6.5 20.8a2 2 0 0 1-2.8-2.8L14.5 6.5z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>',
+  calendar: '',
+};
+function cslIcon(name) {
+  if (name === "calendar") {
+    // 日历带当天日期数字（悬浮窗版同款：红顶条 + 日期）
+    var day = new Date().getDate();
+    return '<svg viewBox="0 0 24 24" width="17" height="17">'
+      + '<rect x="2" y="3" width="20" height="18" rx="4" fill="none" stroke="currentColor" stroke-width="1.8"/>'
+      + '<path d="M2 8.5h20" stroke="currentColor" stroke-width="1.8"/>'
+      + '<text x="12" y="18" text-anchor="middle" font-size="10" font-weight="600" fill="currentColor" font-family="-apple-system,BlinkMacSystemFont,sans-serif">' + day + '</text>'
+      + '</svg>';
+  }
+  return '<svg viewBox="0 0 24 24" width="17" height="17">' + (CSL_ICONS[name] || "") + '</svg>';
+}
+
+
 function fmtK(n, mode) {
   n = Number(n) || 0;
   if (mode === "cn") {
@@ -681,17 +705,20 @@ function buildLine(convId, ctx, tps, rates, fmt) {
   const today = todaySummary();
   const parts = [
     {
-      key: "tps", icon: "⚡", cls: "csl-tps",
+      key: "tps", cls: "csl-tps",
+      icon: "⚡",
       text: tps ? `≈${tps} tps` : "—", sub: "",
       detail: "输出 token 生成速率，空闲时冻结最后值",
     },
     {
-      key: "turn", icon: "💬", cls: "csl-turn",
+      key: "turn", cls: "csl-turn",
+      icon: "💬",
       text: fmtK(turnTok, fmt), sub: `${stats?.turnReqs ?? 0}次`,
       detail: `本轮：输入 ${fmtK(last.input_tokens || 0, fmt)}（缓存 ${fmtK(cachedIn, fmt)}）→ 输出 ${fmtK(last.output_tokens || 0, fmt)}（含推理 ${fmtK(reasoning, fmt)}）`,
     },
     {
-      key: "session", icon: "🗨", cls: "csl-session",
+      key: "session", cls: "csl-session",
+      icon: "🗨",
       text: fmtK(totalTok, fmt), sub: `${stats?.turns ?? 0}轮 ${stats?.requests ?? 0}次`,
       detail: "当前对话累计 token / 对话轮数 / 请求次数",
     },
@@ -703,19 +730,22 @@ function buildLine(convId, ctx, tps, rates, fmt) {
     const pctTxt = pct === null ? "—" : Math.round(pct) + "%";
     const cls = pct !== null && pct > 90 ? "csl-danger" : pct !== null && pct > 70 ? "csl-warn" : "csl-ctx";
     parts.push({
-      key: "ctx", icon: "▓", cls,
+      key: "ctx", cls,
+      icon: "▓",
       text: `${fmtK(used, fmt)}/${fmtK(win, fmt)} ${pctTxt}`, sub: "",
       detail: `窗口 ${fmtK(win, fmt)} · 已用 ${fmtK(used, fmt)}（${pctTxt}）`,
     });
   }
   parts.push({
-    key: "tools", icon: "🔧", cls: "csl-tools",
+    key: "tools", cls: "csl-tools",
+    icon: "🔧",
     text: String(stats?.toolCalls ?? 0), sub: "",
     fail: stats?.toolFails ?? 0,
     detail: `本会话工具调用 ${stats?.toolCalls ?? 0} 次${stats?.toolFails ? `，失败 ${stats.toolFails} 次` : ""}`,
   });
   parts.push({
-    key: "today", icon: "📅", cls: "csl-today",
+    key: "today", cls: "csl-today",
+    icon: cslIcon("calendar"),
     text: fmtK(today?.tokens ?? 0, fmt), sub: `${today?.turns ?? 0}轮 ${today?.requests ?? 0}次`,
     detail: "今日所有会话合计 token / 轮数 / 请求次数",
   });
@@ -763,8 +793,15 @@ class CdpSession {
 function openWs(url, session) {
   return new Promise((resolve, reject) => {
     const sock = new WebSocket(url);
-    sock.onopen = () => resolve(sock);
-    sock.onerror = () => reject(new Error("CDP WebSocket 连接失败"));
+    let opened = false;
+    // onclose 兜底：页面刷新/拒绝连接时可能既不触发 open 也不触发 error，
+    // Promise 永久 pending 会让主循环卡死（实测），5s 超时 + close 双保险
+    const timer = setTimeout(() => {
+      if (!opened) { try { sock.close(); } catch {} reject(new Error("CDP 连接超时")); }
+    }, 5000);
+    sock.onopen = () => { opened = true; clearTimeout(timer); resolve(sock); };
+    sock.onerror = () => { clearTimeout(timer); reject(new Error("CDP WebSocket 连接失败")); };
+    sock.onclose = () => { clearTimeout(timer); if (!opened) reject(new Error("CDP 连接被关闭")); };
     sock.onmessage = (e) => {
       let m;
       try {
@@ -793,8 +830,10 @@ function openWs(url, session) {
 async function listMainTargets() {
   const res = await fetch(`http://${HOST}/json`);
   const list = await res.json();
+  // Codex 新版所有页面 URL 都带 initialRoute 参数，不能再排除；
+  // 只排除明确的辅助页面（头像悬浮层等）
   return (list || []).filter(
-    (t) => t.type === "page" && !/avatar-overlay|initialRoute/.test(t.url || ""),
+    (t) => t.type === "page" && (t.webSocketDebuggerUrl || "").length > 0 && !/avatar-overlay/.test(t.url || ""),
   );
 }
 
