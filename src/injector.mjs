@@ -25,7 +25,7 @@ const DEFAULT_MODEL = process.env.TURN_STATS_MODEL || "deepseek-v4-flash";
 // ---------- 页面注入脚本（幂等，随 tick 重发） ----------
 const INSTALL_SCRIPT = String.raw`
 (function () {
-  var VERSION = 18;
+  var VERSION = 19;
   if (window.__catStatuslineInstalled) {
     if (window.__catStatuslineVersion === VERSION) {
       try { window.__catStatuslineEnsure && window.__catStatuslineEnsure(); } catch (e) {}
@@ -60,11 +60,23 @@ const INSTALL_SCRIPT = String.raw`
       '#cat-statusline .csl-tools .csl-val{color:#7bd4a8}' + '#cat-statusline .csl-sub{opacity:.55;font-size:.92em;margin-left:3px}' + '#cat-statusline .csl-ctxbar{display:inline-block;width:44px;height:4px;margin-left:4px;background:rgba(128,128,128,.25);border-radius:2px;overflow:hidden;vertical-align:middle}' + '#cat-statusline .csl-ctxbar > span{display:block;height:100%;background:#4ade80;border-radius:2px;transition:width .4s ease}' + '#cat-statusline .csl-warn .csl-ctxbar > span{background:#f0b429}' + '#cat-statusline .csl-danger .csl-ctxbar > span{background:#ff6b6b}' + '#cat-statusline .csl-fail{color:#ff6b6b;font-weight:700;margin-left:4px;font-size:.92em}' +
       '#cat-statusline .csl-gear{cursor:pointer;opacity:.5;margin-left:8px}' +
       '#cat-statusline .csl-gear:hover{opacity:1}' +
-      '#cat-statusline-settings{position:fixed;right:16px;bottom:110px;z-index:2147483001;background:var(--color-token-bg-primary,#ffffff);border:1px solid color-mix(in srgb,var(--color-token-border,rgba(128,128,128,.4)) 70%,transparent);border-radius:10px;padding:12px 14px;box-shadow:0 8px 28px rgba(0,0,0,.18);display:flex;flex-direction:column;gap:6px;font-size:12px;min-width:170px}' +
-      '#cat-statusline-settings .csl-panel-title{font-weight:600;margin-bottom:4px;color:var(--color-token-text-primary,#1d1f24)}' +
-      '#cat-statusline-settings label{display:flex;align-items:center;gap:6px;color:var(--color-token-text-secondary,#3d4350);cursor:pointer}' +
-      '#cat-statusline-settings input[type=number]{width:52px;background:transparent;border:1px solid rgba(128,128,128,.4);border-radius:6px;color:var(--color-token-text-primary,#1d1f24);padding:2px 4px}' +
-      '#cat-statusline-settings button{margin-top:6px;background:#2c6ecb;border:none;border-radius:6px;color:#fff;padding:4px 0;cursor:pointer;font-size:12px}';
+      '#cat-statusline-settings{position:fixed;right:16px;bottom:110px;z-index:2147483001;background:var(--color-token-bg-primary,#ffffff);border:1px solid color-mix(in srgb,var(--color-token-border,rgba(128,128,128,.4)) 70%,transparent);border-radius:12px;padding:6px;box-shadow:0 12px 36px rgba(0,0,0,.22);width:236px;font-size:12px}' +
+      '#cat-statusline-settings .csl-panel-title{display:flex;align-items:center;justify-content:space-between;font-weight:600;padding:8px 10px 10px;color:var(--color-token-text-primary,#1d1f24);border-bottom:1px solid color-mix(in srgb,var(--color-token-border,rgba(128,128,128,.3)) 50%,transparent);margin-bottom:4px}' +
+      '#cat-statusline-settings .csl-close{background:transparent;border:none;color:var(--color-token-text-secondary,#9aa1aa);font-size:15px;line-height:1;cursor:pointer;padding:2px 4px;border-radius:4px}' +
+      '#cat-statusline-settings .csl-close:hover{color:var(--color-token-text-primary,#1d1f24);background:rgba(128,128,128,.12)}' +
+      '#cat-statusline-settings .csl-row{display:flex;align-items:center;gap:9px;padding:7px 10px;border-radius:7px;cursor:pointer;color:var(--color-token-text-primary,#1d1f24)}' +
+      '#cat-statusline-settings .csl-row:hover{background:color-mix(in srgb,var(--color-token-border,rgba(128,128,128,.28)) 30%,transparent)}' +
+      '#cat-statusline-settings .csl-row-icon{width:20px;display:inline-flex;align-items:center;justify-content:center;flex:none}' +
+      '#cat-statusline-settings .csl-row-icon.csl-mono{font-family:ui-monospace,Menlo,monospace;font-size:10px;opacity:.6}' +
+      '#cat-statusline-settings .csl-row-name{flex:1}' +
+      '#cat-statusline-settings .csl-sep{height:1px;margin:4px 8px;background:color-mix(in srgb,var(--color-token-border,rgba(128,128,128,.3)) 50%,transparent)}' +
+      '#cat-statusline-settings .csl-switch{margin-left:auto;position:relative;display:inline-block;width:30px;height:17px;flex:none}' +
+      '#cat-statusline-settings .csl-switch input{appearance:none;-webkit-appearance:none;position:absolute;inset:0;width:100%;height:100%;margin:0;border-radius:9px;background:rgba(128,128,128,.35);transition:background .2s;cursor:pointer}' +
+      '#cat-statusline-settings .csl-switch input:checked{background:#2c6ecb}' +
+      '#cat-statusline-settings .csl-switch input::after{content:"";position:absolute;left:2px;top:2px;width:13px;height:13px;border-radius:50%;background:#fff;transition:transform .2s;box-shadow:0 1px 2px rgba(0,0,0,.25)}' +
+      '#cat-statusline-settings .csl-switch input:checked::after{transform:translateX(13px)}' +
+      '#cat-statusline-settings .csl-num{width:52px;background:transparent;border:1px solid rgba(128,128,128,.4);border-radius:6px;color:var(--color-token-text-primary,#1d1f24);padding:3px 6px;margin-left:auto;font-family:inherit}' +
+      '#cat-statusline-settings .csl-sel{background:transparent;border:1px solid rgba(128,128,128,.4);border-radius:6px;color:var(--color-token-text-primary,#1d1f24);padding:3px 6px;margin-left:auto;font-family:inherit}';
     (document.head || document.documentElement).appendChild(st);
   }
 
@@ -170,23 +182,44 @@ const INSTALL_SCRIPT = String.raw`
     return d;
   }
 
+  function calSvg() {
+    var day = new Date().getDate();
+    return '<svg viewBox="0 0 24 24" width="13" height="13">'
+      + '<rect x="1" y="1" width="22" height="22" rx="4" fill="#f6f7f9" stroke="#c9ccd1" stroke-width="1.5"/>'
+      + '<rect x="1" y="1" width="22" height="8" rx="4" fill="#ff5c5c"/>'
+      + '<rect x="1" y="5" width="22" height="4" fill="#ff5c5c"/>'
+      + '<text x="12" y="19" text-anchor="middle" font-size="11" font-weight="600" fill="#2a2c33" font-family="-apple-system,BlinkMacSystemFont,sans-serif">' + day + '</text>'
+      + '</svg>';
+  }
   var CSL_ITEMS = [
-    ['tps', '生成速度'], ['turn', '本轮'], ['session', '会话累计'], ['ctx', '上下文'],
-    ['tools', '工具调用'], ['today', '今日合计'],
+    ['tps', '生成速度', '⚡'],
+    ['turn', '本轮', '💬'],
+    ['session', '会话累计', '🗨'],
+    ['ctx', '上下文', '▓'],
+    ['tools', '工具调用', '🔧'],
+    ['today', '今日合计', null],   // 日历 SVG 动态生成
   ];
 
   function toggleSettings() {
     var old = document.getElementById('cat-statusline-settings');
     if (old) { old.remove(); return; }
     var conf = cslConf();
-    var html = '<div class="csl-panel-title">状态栏显示设置</div>';
+    var html = '<div class="csl-panel-title">状态栏显示设置<button type="button" class="csl-close" data-done="1">×</button></div>';
     for (var i = 0; i < CSL_ITEMS.length; i++) {
       var it = CSL_ITEMS[i];
-      html += '<label><input type="checkbox" data-k="' + it[0] + '"' + (conf.show[it[0]] ? ' checked' : '') + '/>' + it[1] + '</label>';
+      var iconHtml = it[2] === null ? calSvg() : escapeHtml(it[2]);
+      html += '<label class="csl-row"><span class="csl-row-icon">' + iconHtml + '</span>'
+        + '<span class="csl-row-name">' + it[1] + '</span>'
+        + '<span class="csl-switch"><input type="checkbox" data-k="' + it[0] + '"' + (conf.show[it[0]] ? ' checked' : '') + '/></span>'
+        + '</label>';
     }
-    html += '<label>字号<input type="number" min="9" max="18" value="' + conf.fontSize + '" data-fs="1"/></label>';
-    html += '<label>数字格式<select data-fmt="1"><option value="k"' + (conf.fmt !== "cn" ? " selected" : "") + '>k / M</option><option value="cn"' + (conf.fmt === "cn" ? " selected" : "") + '>万 / 亿</option></select></label>';
-    html += '<button type="button" data-done="1">完成</button>';
+    html += '<div class="csl-sep"></div>';
+    html += '<label class="csl-row"><span class="csl-row-icon csl-mono">Aa</span>'
+      + '<span class="csl-row-name">字号</span>'
+      + '<input class="csl-num" type="number" min="9" max="18" value="' + conf.fontSize + '" data-fs="1"/></label>';
+    html += '<label class="csl-row"><span class="csl-row-icon csl-mono">123</span>'
+      + '<span class="csl-row-name">数字格式</span>'
+      + '<select class="csl-sel" data-fmt="1"><option value="k"' + (conf.fmt !== "cn" ? " selected" : "") + '>k / M</option><option value="cn"' + (conf.fmt === "cn" ? " selected" : "") + '>万 / 亿</option></select></label>';
     var panel = document.createElement('div');
     panel.id = 'cat-statusline-settings';
     panel.innerHTML = html;
