@@ -25,13 +25,14 @@ const DEFAULT_MODEL = process.env.TURN_STATS_MODEL || "deepseek-v4-flash";
 // ---------- 页面注入脚本（幂等，随 tick 重发） ----------
 const INSTALL_SCRIPT = String.raw`
 (function () {
-  var VERSION = 19;
+  var VERSION = 22;
   if (window.__catStatuslineInstalled) {
     if (window.__catStatuslineVersion === VERSION) {
       try { window.__catStatuslineEnsure && window.__catStatuslineEnsure(); } catch (e) {}
       return;
     }
     try { if (window.__catStatuslineObserver) window.__catStatuslineObserver.disconnect(); } catch (e) {}
+    if (window.__catStatuslinePosTimer) { clearInterval(window.__catStatuslinePosTimer); window.__catStatuslinePosTimer = null; }
     var old = document.getElementById('cat-statusline');
     if (old) old.remove();
     var oldStyle = document.getElementById('cat-statusline-style');
@@ -140,23 +141,43 @@ const INSTALL_SCRIPT = String.raw`
       window.__catStatuslineLastConv = cur;
       try { console.log('__catStatuslineRefresh'); } catch (e) {}
     }
-    // 位置：与输入框容器左右对齐、紧贴其上边缘，视觉上嵌入输入框顶部；
-    // 输入框不可见/rect 无效（切对话瞬间、任务运行中）→ 横跨窗口底部，保证始终可见
+    // 位置（zcode 形态）：与输入框面板同宽，作为面板内部最底部一行——
+    // 面板下缘空隙足够时放面板下方；不足 28px 时用"面板延伸行"：
+    // 贴窗口底 + 顶边伸入面板内衔接 + 背景色取面板实时计算值（同色无缝）+ 底部圆角匹配面板
     var host = composerBox();
     var r = host ? host.getBoundingClientRect() : null;
     if (r && r.width > 300 && r.height > 40 && r.top >= 0 && window.innerHeight - r.top >= 60) {
+      var gap = window.innerHeight - r.bottom;
       node.style.left = Math.max(8, r.left) + 'px';
       node.style.right = 'auto';
       node.style.width = r.width + 'px';
       node.style.maxWidth = 'none';
-      node.style.bottom = Math.max(0, window.innerHeight - r.top) + 'px';
       node.classList.add('csl-embedded');
+      if (gap >= 28) {
+        node.style.bottom = Math.max(0, gap - 26) + 'px';
+        node.style.borderRadius = '10px';
+        node.style.border = '';
+        node.style.background = '';
+        node.style.paddingTop = '3px';
+        node.style.paddingBottom = '5px';
+      } else {
+        var pcs = getComputedStyle(host);
+        node.style.bottom = '0px';
+        node.style.borderRadius = '0 0 22px 22px';
+        node.style.border = 'none';
+        node.style.background = pcs.backgroundColor;
+        node.style.paddingTop = '2px';
+        node.style.paddingBottom = '2px';
+      }
     } else {
       node.style.left = '12px';
       node.style.right = '12px';
       node.style.width = 'auto';
       node.style.maxWidth = 'none';
       node.style.bottom = '6px';
+      node.style.borderRadius = '10px';
+      node.style.border = '';
+      node.style.background = '';
       node.classList.remove('csl-embedded');
     }
   }
