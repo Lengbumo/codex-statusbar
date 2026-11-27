@@ -25,7 +25,7 @@ const DEFAULT_MODEL = process.env.TURN_STATS_MODEL || "deepseek-v4-flash";
 // ---------- 页面注入脚本（幂等，随 tick 重发） ----------
 const INSTALL_SCRIPT = String.raw`
 (function () {
-  var VERSION = 15;
+  var VERSION = 16;
   if (window.__catStatuslineInstalled) {
     if (window.__catStatuslineVersion === VERSION) {
       try { window.__catStatuslineEnsure && window.__catStatuslineEnsure(); } catch (e) {}
@@ -48,7 +48,7 @@ const INSTALL_SCRIPT = String.raw`
       '#cat-statusline{position:fixed;left:12px;right:12px;bottom:6px;display:flex;align-items:center;padding:3px 12px 5px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Cascadia Mono",monospace;line-height:1.55;color:var(--color-token-text-secondary,#9aa1aa);white-space:nowrap;overflow:hidden;background:var(--color-token-bg-primary,#ffffff);border:1px solid color-mix(in srgb,var(--color-token-border,rgba(128,128,128,.28)) 55%,transparent);border-bottom:none;border-radius:10px 10px 0 0;user-select:none;z-index:2147483000;transition:bottom .12s ease}' + '#cat-statusline.csl-embedded{box-shadow:none}' + '#cat-statusline #cat-statusline-text{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}' +
       '#cat-statusline .csl-off{opacity:.55}' +
       '#cat-statusline .csl-seg{display:inline-flex;align-items:baseline;gap:3px}' +
-      '#cat-statusline .csl-ico{opacity:.7;display:inline-flex;align-items:center}' + '#cat-statusline .csl-ico svg{width:17px;height:17px;display:block}' +
+      '#cat-statusline .csl-ico{opacity:.7;display:inline-flex;align-items:center}' + '#cat-statusline .csl-ico svg{display:block}' +
       '#cat-statusline .csl-lbl{opacity:.5;font-size:.92em}' +
       '#cat-statusline .csl-val{font-weight:600;color:var(--color-token-text-primary,#e6e8eb)}' +
       '#cat-statusline .csl-dot{opacity:.4;margin:0 7px}' +
@@ -516,12 +516,13 @@ const CSL_ICONS = {
 };
 function cslIcon(name) {
   if (name === "calendar") {
-    // 日历带当天日期数字（悬浮窗版同款：红顶条 + 日期）
+    // 完全照抄悬浮窗版：白底灰描边 + 红色顶条 + 深色日期数字，13px
     var day = new Date().getDate();
-    return '<svg viewBox="0 0 24 24" width="17" height="17">'
-      + '<rect x="2" y="3" width="20" height="18" rx="4" fill="none" stroke="currentColor" stroke-width="1.8"/>'
-      + '<path d="M2 8.5h20" stroke="currentColor" stroke-width="1.8"/>'
-      + '<text x="12" y="18" text-anchor="middle" font-size="10" font-weight="600" fill="currentColor" font-family="-apple-system,BlinkMacSystemFont,sans-serif">' + day + '</text>'
+    return '<svg viewBox="0 0 24 24" width="13" height="13" style="vertical-align:-1px">'
+      + '<rect x="1" y="1" width="22" height="22" rx="4" fill="#f6f7f9" stroke="#c9ccd1" stroke-width="1.5"/>'
+      + '<rect x="1" y="1" width="22" height="8" rx="4" fill="#ff5c5c"/>'
+      + '<rect x="1" y="5" width="22" height="4" fill="#ff5c5c"/>'
+      + '<text x="12" y="19" text-anchor="middle" font-size="11" font-weight="600" fill="#2a2c33" font-family="-apple-system,BlinkMacSystemFont,sans-serif">' + day + '</text>'
       + '</svg>';
   }
   return '<svg viewBox="0 0 24 24" width="17" height="17">' + (CSL_ICONS[name] || "") + '</svg>';
