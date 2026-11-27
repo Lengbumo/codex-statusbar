@@ -25,7 +25,7 @@ const DEFAULT_MODEL = process.env.TURN_STATS_MODEL || "deepseek-v4-flash";
 // ---------- 页面注入脚本（幂等，随 tick 重发） ----------
 const INSTALL_SCRIPT = String.raw`
 (function () {
-  var VERSION = 23;
+  var VERSION = 24;
   if (window.__catStatuslineInstalled) {
     if (window.__catStatuslineVersion === VERSION) {
       try { window.__catStatuslineEnsure && window.__catStatuslineEnsure(); } catch (e) {}
@@ -180,6 +180,7 @@ const INSTALL_SCRIPT = String.raw`
         }
       }
       node.style.position = 'static';
+      node.style.boxSizing = 'border-box';
       node.style.background = 'none';
       node.style.border = '0';
       node.style.borderRadius = '0';
