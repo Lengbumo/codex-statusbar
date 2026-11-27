@@ -25,7 +25,7 @@ const DEFAULT_MODEL = process.env.TURN_STATS_MODEL || "deepseek-v4-flash";
 // ---------- 页面注入脚本（幂等，随 tick 重发） ----------
 const INSTALL_SCRIPT = String.raw`
 (function () {
-  var VERSION = 17;
+  var VERSION = 18;
   if (window.__catStatuslineInstalled) {
     if (window.__catStatuslineVersion === VERSION) {
       try { window.__catStatuslineEnsure && window.__catStatuslineEnsure(); } catch (e) {}
@@ -57,7 +57,7 @@ const INSTALL_SCRIPT = String.raw`
       '#cat-statusline .csl-warn .csl-val{color:#f0b429}' +
       '#cat-statusline .csl-danger .csl-val{color:#ff6b6b}' +
       '#cat-statusline .csl-turn .csl-val{color:#b8a8ff}' +
-      '#cat-statusline .csl-tools .csl-val{color:#7bd4a8}' + '#cat-statusline .csl-sub{opacity:.55;font-size:.92em;margin-left:3px}' + '#cat-statusline .csl-fail{color:#ff6b6b;font-weight:700;margin-left:4px;font-size:.92em}' +
+      '#cat-statusline .csl-tools .csl-val{color:#7bd4a8}' + '#cat-statusline .csl-sub{opacity:.55;font-size:.92em;margin-left:3px}' + '#cat-statusline .csl-ctxbar{display:inline-block;width:44px;height:4px;margin-left:4px;background:rgba(128,128,128,.25);border-radius:2px;overflow:hidden;vertical-align:middle}' + '#cat-statusline .csl-ctxbar > span{display:block;height:100%;background:#4ade80;border-radius:2px;transition:width .4s ease}' + '#cat-statusline .csl-warn .csl-ctxbar > span{background:#f0b429}' + '#cat-statusline .csl-danger .csl-ctxbar > span{background:#ff6b6b}' + '#cat-statusline .csl-fail{color:#ff6b6b;font-weight:700;margin-left:4px;font-size:.92em}' +
       '#cat-statusline .csl-gear{cursor:pointer;opacity:.5;margin-left:8px}' +
       '#cat-statusline .csl-gear:hover{opacity:1}' +
       '#cat-statusline-settings{position:fixed;right:16px;bottom:110px;z-index:2147483001;background:var(--color-token-bg-primary,#ffffff);border:1px solid color-mix(in srgb,var(--color-token-border,rgba(128,128,128,.4)) 70%,transparent);border-radius:10px;padding:12px 14px;box-shadow:0 8px 28px rgba(0,0,0,.18);display:flex;flex-direction:column;gap:6px;font-size:12px;min-width:170px}' +
@@ -231,6 +231,7 @@ const INSTALL_SCRIPT = String.raw`
         + '<span class="csl-val">' + escapeHtml(p.text) + '</span>'
         + (p.sub ? '<span class="csl-sub">' + escapeHtml(p.sub) + '</span>' : '')
         + (p.fail ? '<span class="csl-fail">🔴' + escapeHtml(p.fail) + '</span>' : '')
+        + (p.bar !== undefined && p.bar !== null ? '<span class="csl-ctxbar"><span style="width:' + p.bar + '%"></span></span>' : '')
         + '</span>'
         + '<span class="csl-dot">·</span>';
     }
@@ -784,13 +785,16 @@ function buildLine(convId, ctx, tps, rates, fmt) {
     const used = Number(effCtx.used) || 0;
     const win = Number(effCtx.win) || 0;
     const pct = win > 0 ? (100 * used) / win : null;
-    const pctTxt = pct === null ? "—" : Math.round(pct) + "%";
-    const cls = pct !== null && pct > 90 ? "csl-danger" : pct !== null && pct > 70 ? "csl-warn" : "csl-ctx";
+    // 悬浮窗版分档：60% 黄、85% 红
+    const cls = pct !== null && pct >= 85 ? "csl-danger" : pct !== null && pct >= 60 ? "csl-warn" : "csl-ctx";
     parts.push({
       key: "ctx", cls,
       icon: "▓",
-      text: `${fmtK(used, fmt)}/${fmtK(win, fmt)} ${pctTxt}`, sub: "",
-      detail: `窗口 ${fmtK(win, fmt)} · 已用 ${fmtK(used, fmt)}（${pctTxt}）`,
+      label: "上下文",
+      text: pct === null ? "—" : pct.toFixed(1) + "%",
+      sub: "",
+      bar: pct === null ? 0 : Math.min(100, pct),
+      detail: `窗口 ${fmtK(win, fmt)} · 已用 ${fmtK(used, fmt)}（${pct === null ? "—" : pct.toFixed(1) + "%"}）`,
     });
   }
   parts.push({
