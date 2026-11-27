@@ -25,7 +25,7 @@ const DEFAULT_MODEL = process.env.TURN_STATS_MODEL || "deepseek-v4-flash";
 // ---------- 页面注入脚本（幂等，随 tick 重发） ----------
 const INSTALL_SCRIPT = String.raw`
 (function () {
-  var VERSION = 16;
+  var VERSION = 17;
   if (window.__catStatuslineInstalled) {
     if (window.__catStatuslineVersion === VERSION) {
       try { window.__catStatuslineEnsure && window.__catStatuslineEnsure(); } catch (e) {}
@@ -160,7 +160,7 @@ const INSTALL_SCRIPT = String.raw`
   }
 
   function cslConf() {
-    var d = { show: { tps: 1, turn: 1, session: 1, ctx: 1, tools: 1, today: 1 }, fontSize: 12, fmt: 'k' };
+    var d = { show: { tps: 1, turn: 1, session: 1, ctx: 1, tools: 1, today: 1 }, fontSize: 12, fmt: 'cn' };
     try {
       var c = JSON.parse(localStorage.getItem('cat-statusline-config') || '{}');
       if (c.show) for (var k in d.show) if (k in c.show) d.show[k] = !!c.show[k];
@@ -597,7 +597,7 @@ function parseRollout(file) {
 
 // 全量正则扫描：实际模型名（turn_context 最新值）与工具调用次数；大文件仅正则不做逐行 JSON 解析
 const extrasCache = new Map();
-// 行级扫描：模型 / 轮数(task_started) / 请求次数(token_count) / 工具调用与失败(status:failed) / 本轮请求数
+// 逐事件统计（悬浮窗版 codex-token-statusbar 算法）
 function scanExtras(convId) {
   const entry = loadRollout(convId);
   if (!entry?.path) return null;
@@ -605,37 +605,91 @@ function scanExtras(convId) {
   try { st = statSync(entry.path); } catch { return null; }
   const cached = extrasCache.get(convId);
   if (cached && cached.mtimeMs === st.mtimeMs) return cached.data;
-  const data = { model: null, toolCalls: 0, toolFails: 0, turns: 0, requests: 0, turnReqs: 0 };
+  const d = {
+    model: null, toolCalls: 0, toolFails: 0, turns: 0, requests: 0, turnReqs: 0,
+    sessionTotal: 0, sessionOutput: 0, turnStartTotal: 0, turnStartOutput: 0,
+    turnGenMs: 0, lastCountTs: null, lastOutput: null, lastRate: null,
+  };
   try {
     const lines = readFileSync(entry.path, "utf8").split("\n");
     let lastTurnLine = -1;
+    let lastTurnId = null;
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       if (!line) continue;
-      if (line.includes('"task_started"')) { data.turns++; lastTurnLine = i; }
-      if (line.includes('"token_count"')) data.requests++;
-      if (line.includes('"function_call"')) {
-        data.toolCalls++;
-        if (line.includes('"status":"failed"')) data.toolFails++;
+      if (line.includes('"task_started"')) {
+        d.turns++;
+        lastTurnLine = i;
+        try {
+          const p = JSON.parse(line).payload || {};
+          if (p.turn_id && p.turn_id !== lastTurnId) {
+            lastTurnId = p.turn_id;
+            d.turnStartTotal = d.sessionTotal;
+            d.turnStartOutput = d.sessionOutput;
+            d.turnGenMs = 0;
+          }
+        } catch { /* 行解析失败按计数处理 */ }
+      } else if (line.includes('"token_count"')) {
+        d.requests++;
+        try {
+          const info = (JSON.parse(line).payload || {}).info || {};
+          const total = info.total_token_usage || {};
+          const last = info.last_token_usage || {};
+          if (typeof total.total_tokens === "number") d.sessionTotal = total.total_tokens;
+          if (typeof total.output_tokens === "number") d.sessionOutput = total.output_tokens;
+          const nowTs = Date.parse(obj_ts(line));
+          if (Number.isFinite(nowTs)) {
+            if (d.lastCountTs !== null && d.lastOutput !== null) {
+              const delta = nowTs - d.lastCountTs;
+              if (delta >= 200 && delta <= 60000 && d.lastOutput > 0) {
+                d.lastRate = Math.round(d.lastOutput / delta * 1000 * 10) / 10;
+              }
+            }
+            d.lastCountTs = nowTs;
+            d.lastOutput = last.output_tokens || 0;
+          }
+        } catch { /* 跳过坏行 */ }
+      } else if (line.includes('"item_completed"')) {
+        try {
+          const p = JSON.parse(line).payload || {};
+          const it = (p.item || {}).type;
+          const s = p.started_at_ms;
+          const c = p.completed_at_ms;
+          if ((it === "Reasoning" || it === "AgentMessage") && typeof s === "number" && typeof c === "number" && c > s) {
+            d.turnGenMs += c - s;
+          }
+        } catch { /* 跳过坏行 */ }
+      } else if (line.includes('"function_call"')) {
+        d.toolCalls++;
+        if (line.includes('"status":"failed"')) d.toolFails++;
       }
-      if (line.includes('"model"')) {
+      if (!d.model && line.includes('"model"')) {
         const mm = /"model"\s*:\s*"([^"]+)"/.exec(line);
-        if (mm) data.model = mm[1];
+        if (mm) d.model = mm[1];
       }
     }
     for (let i = lastTurnLine + 1; i < lines.length; i++) {
-      if (lines[i] && lines[i].includes('"token_count"')) data.turnReqs++;
+      if (lines[i] && lines[i].includes('"token_count"')) d.turnReqs++;
     }
   } catch { /* 读取失败保持空数据 */ }
-  extrasCache.set(convId, { mtimeMs: st.mtimeMs, data });
-  return data;
+  const turnOutput = Math.max(0, d.sessionOutput - d.turnStartOutput);
+  d.turnRate = d.turnGenMs > 0 && turnOutput > 0 ? Math.round(turnOutput / d.turnGenMs * 1000 * 10) / 10 : null;
+  d.turnTokens = Math.max(0, d.sessionTotal - d.turnStartTotal);
+  extrasCache.set(convId, { mtimeMs: st.mtimeMs, data: d });
+  return d;
 }
 
-// 今日合计：当日目录全部 rollout 汇总（mtime 缓存 + 60s 节流）
+function obj_ts(line) {
+  const m = /"timestamp":"([^"]+)"/.exec(line);
+  return m ? m[1] : "";
+}
+
+// 今日新增：当日 0 点后逐条 token_count 的 last.total_tokens 累加（悬浮窗版口径）
 const todayCache = { files: new Map(), data: null, scanAt: 0 };
 function todaySummary() {
   if (todayCache.data && Date.now() - todayCache.scanAt < 60000) return todayCache.data;
   const now = new Date();
+  const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const dir = path.join(
     SESSION_ROOTS[0],
     String(now.getFullYear()).padStart(4, "0"),
@@ -649,6 +703,7 @@ function todaySummary() {
     const full = path.join(dir, f);
     let st;
     try { st = statSync(full); } catch { continue; }
+    if (st.mtimeMs < dayStart) continue;
     const cached = todayCache.files.get(f);
     if (cached && cached.mtimeMs === st.mtimeMs) {
       tokens += cached.tokens; turns += cached.turns; requests += cached.requests;
@@ -660,11 +715,12 @@ function todaySummary() {
       for (const line of lines) {
         if (!line) continue;
         if (line.includes('"task_started"')) fd.turns++;
-        if (line.includes('"token_count"')) fd.requests++;
-        if (line.includes('"total_token_usage"')) {
-          // 同行还含 last_token_usage，须限定 total_token_usage 对象内的 total_tokens
-          const mm = /"total_token_usage":\{[^}]*"total_tokens":(\d+)/.exec(line);
-          if (mm) fd.tokens = Number(mm[1]);
+        if (line.includes('"token_count"')) {
+          fd.requests++;
+          const ts = Date.parse(obj_ts(line));
+          if (!Number.isFinite(ts) || ts < dayStart) continue;
+          const mm = /"last_token_usage":\{[^}]*"total_tokens":(\d+)/.exec(line);
+          if (mm) fd.tokens += Number(mm[1]);
         }
       }
     } catch { /* 跳过坏文件 */ }
@@ -701,15 +757,15 @@ function buildLine(convId, ctx, tps, rates, fmt) {
 
   const cachedIn = Number(last.cached_input_tokens) || 0;
   const reasoning = Number(last.reasoning_output_tokens) || 0;
-  const turnTok = Number(last.total_tokens || 0);
+  const turnTok = stats?.turnTokens ?? 0;
   const totalTok = Number(total.total_tokens || 0);
   const today = todaySummary();
   const parts = [
     {
       key: "tps", cls: "csl-tps",
       icon: "⚡",
-      text: tps ? `≈${tps} tps` : "—", sub: "",
-      detail: "输出 token 生成速率，空闲时冻结最后值",
+      text: stats?.turnRate !== null && stats?.turnRate !== undefined ? `≈${stats.turnRate} tps` : "—", sub: "",
+      detail: "本轮生成速度 = 本轮新增 output ÷ 纯生成时长（Reasoning/AgentMessage 段累加，工具等待不计）",
     },
     {
       key: "turn", cls: "csl-turn",
