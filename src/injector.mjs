@@ -25,7 +25,7 @@ const DEFAULT_MODEL = process.env.TURN_STATS_MODEL || "deepseek-v4-flash";
 // ---------- 页面注入脚本（幂等，随 tick 重发） ----------
 const INSTALL_SCRIPT = String.raw`
 (function () {
-  var VERSION = 12;
+  var VERSION = 13;
   if (window.__catStatuslineInstalled) {
     if (window.__catStatuslineVersion === VERSION) {
       try { window.__catStatuslineEnsure && window.__catStatuslineEnsure(); } catch (e) {}
@@ -57,7 +57,7 @@ const INSTALL_SCRIPT = String.raw`
       '#cat-statusline .csl-warn .csl-val{color:#f0b429}' +
       '#cat-statusline .csl-danger .csl-val{color:#ff6b6b}' +
       '#cat-statusline .csl-turn .csl-val{color:#b8a8ff}' +
-      '#cat-statusline .csl-tools .csl-val{color:#7bd4a8}' +
+      '#cat-statusline .csl-tools .csl-val{color:#7bd4a8}' + '#cat-statusline .csl-sub{opacity:.55;font-size:.92em;margin-left:3px}' + '#cat-statusline .csl-fail{color:#ff6b6b;font-weight:700;margin-left:4px;font-size:.92em}' +
       '#cat-statusline .csl-gear{cursor:pointer;opacity:.5;margin-left:8px}' +
       '#cat-statusline .csl-gear:hover{opacity:1}' +
       '#cat-statusline-settings{position:fixed;right:16px;bottom:110px;z-index:2147483001;background:var(--color-token-bg-primary,#ffffff);border:1px solid color-mix(in srgb,var(--color-token-border,rgba(128,128,128,.4)) 70%,transparent);border-radius:10px;padding:12px 14px;box-shadow:0 8px 28px rgba(0,0,0,.18);display:flex;flex-direction:column;gap:6px;font-size:12px;min-width:170px}' +
@@ -68,18 +68,26 @@ const INSTALL_SCRIPT = String.raw`
     (document.head || document.documentElement).appendChild(st);
   }
 
-  // 输入框可见容器：.ProseMirror 向上找明显圆角 + 足够宽高的祖先（跨平台稳定，不依赖 form/按钮类名）
+  // 输入框可见容器：contenteditable 优先（切对话后 .ProseMirror 可能是 0x0 隐藏旧节点），
+  // 再向上找明显圆角的祖先。rect 无效的候选一律排除，找不到返回 null（贴窗口底，绝不飞出视口）。
   function composerBox() {
-    var pm = document.querySelector('.ProseMirror');
-    var el = pm;
-    for (var i = 0; el && i < 8; i++, el = el.parentElement) {
+    var candidates = document.querySelectorAll('[contenteditable="true"], .ProseMirror');
+    var editor = null;
+    for (var i = 0; i < candidates.length; i++) {
+      var el = candidates[i];
+      var r = el.getBoundingClientRect();
+      if (r.width > 200 && r.height >= 20 && r.top >= 0 && r.bottom <= window.innerHeight + 60) { editor = el; break; }
+    }
+    if (!editor) return null;
+    var walk = editor;
+    for (var j = 0; walk && j < 8; j++, walk = walk.parentElement) {
       try {
-        var cs = getComputedStyle(el);
-        var r = el.getBoundingClientRect();
-        if (parseFloat(cs.borderRadius) >= 10 && r.width > 300 && r.height > 40) return el;
+        var cs = getComputedStyle(walk);
+        var r2 = walk.getBoundingClientRect();
+        if (parseFloat(cs.borderRadius) >= 10 && r2.width > 300 && r2.height > 40 && r2.top >= 0) return walk;
       } catch (e) {}
     }
-    return pm ? (pm.closest('form') || pm.parentElement) : null;
+    return editor;
   }
 
   function composerHost() {
@@ -121,10 +129,10 @@ const INSTALL_SCRIPT = String.raw`
       try { console.log('__catStatuslineRefresh'); } catch (e) {}
     }
     // 位置：与输入框容器左右对齐、紧贴其上边缘，视觉上嵌入输入框顶部；
-    // 输入框不存在（首页/设置）时横跨窗口底部
+    // 输入框不可见/rect 无效（切对话瞬间、任务运行中）→ 横跨窗口底部，保证始终可见
     var host = composerBox();
-    if (host) {
-      var r = host.getBoundingClientRect();
+    var r = host ? host.getBoundingClientRect() : null;
+    if (r && r.width > 300 && r.height > 40 && r.top >= 0 && window.innerHeight - r.top >= 60) {
       node.style.left = Math.max(8, r.left) + 'px';
       node.style.right = 'auto';
       node.style.width = r.width + 'px';
@@ -142,6 +150,9 @@ const INSTALL_SCRIPT = String.raw`
   }
 
   window.__catStatuslineEnsure = ensure;
+  if (!window.__catStatuslinePosTimer) {
+    window.__catStatuslinePosTimer = setInterval(function () { try { ensure(); } catch (e) {} }, 1500);
+  }
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, function (c) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
@@ -149,7 +160,7 @@ const INSTALL_SCRIPT = String.raw`
   }
 
   function cslConf() {
-    var d = { show: { model: 1, tps: 1, cache: 1, ctx: 1, tokens: 1, tools: 1, turnCost: 1, threadCost: 1 }, fontSize: 12, fmt: 'k' };
+    var d = { show: { tps: 1, turn: 1, session: 1, ctx: 1, tools: 1, today: 1 }, fontSize: 12, fmt: 'k' };
     try {
       var c = JSON.parse(localStorage.getItem('cat-statusline-config') || '{}');
       if (c.show) for (var k in d.show) if (k in c.show) d.show[k] = !!c.show[k];
@@ -160,8 +171,8 @@ const INSTALL_SCRIPT = String.raw`
   }
 
   var CSL_ITEMS = [
-    ['model', '模型'], ['tps', '生成速度'], ['cache', '缓存'], ['ctx', '上下文'],
-    ['tokens', '输入→输出'], ['tools', '工具调用'], ['turnCost', '本轮费用'], ['threadCost', '线程费用'],
+    ['tps', '生成速度'], ['turn', '本轮'], ['session', '会话累计'], ['ctx', '上下文'],
+    ['tools', '工具调用'], ['today', '今日合计'],
   ];
 
   function toggleSettings() {
@@ -217,7 +228,10 @@ const INSTALL_SCRIPT = String.raw`
       html += '<span class="csl-seg ' + (p.cls || '') + '"' + (p.detail ? ' title="' + escapeHtml(p.detail) + '"' : '') + '>'
         + (p.icon ? '<span class="csl-ico">' + escapeHtml(p.icon) + '</span>' : '')
         + (p.label ? '<span class="csl-lbl">' + escapeHtml(p.label) + '</span>' : '')
-        + '<span class="csl-val">' + escapeHtml(p.text) + '</span></span>'
+        + '<span class="csl-val">' + escapeHtml(p.text) + '</span>'
+        + (p.sub ? '<span class="csl-sub">' + escapeHtml(p.sub) + '</span>' : '')
+        + (p.fail ? '<span class="csl-fail">🔴' + escapeHtml(p.fail) + '</span>' : '')
+        + '</span>'
         + '<span class="csl-dot">·</span>';
     }
     html += '<span class="csl-gear" title="显示设置">⚙</span>';
@@ -490,6 +504,20 @@ function readRateCard() {
   }
 }
 
+function fmtK(n, mode) {
+  n = Number(n) || 0;
+  if (mode === "cn") {
+    if (n >= 1e8) return (n / 1e8).toFixed(2).replace(/\.?0+$/, "") + "亿";
+    if (n >= 1e4) return (n / 1e4).toFixed(1).replace(/\.0$/, "") + "万";
+    return String(Math.round(n));
+  }
+  if (n >= 1e9) return (n / 1e9).toFixed(1) + "B";
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + "M";
+  if (n >= 1e5) return Math.round(n / 1e3) + "k";
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + "k";
+  return String(Math.round(n));
+}
+
 const TAIL_BYTES = 512 * 1024;
 
 function parseRollout(file) {
@@ -544,6 +572,7 @@ function parseRollout(file) {
 
 // 全量正则扫描：实际模型名（turn_context 最新值）与工具调用次数；大文件仅正则不做逐行 JSON 解析
 const extrasCache = new Map();
+// 行级扫描：模型 / 轮数(task_started) / 请求次数(token_count) / 工具调用与失败(status:failed) / 本轮请求数
 function scanExtras(convId) {
   const entry = loadRollout(convId);
   if (!entry?.path) return null;
@@ -551,65 +580,75 @@ function scanExtras(convId) {
   try { st = statSync(entry.path); } catch { return null; }
   const cached = extrasCache.get(convId);
   if (cached && cached.mtimeMs === st.mtimeMs) return cached.data;
-  const data = { model: null, toolCalls: 0 };
+  const data = { model: null, toolCalls: 0, toolFails: 0, turns: 0, requests: 0, turnReqs: 0 };
   try {
-    const raw = readFileSync(entry.path, "utf8");
-    const models = raw.match(/"model"\s*:\s*"([^"]+)"/g);
-    if (models && models.length) {
-      const mm = /"model"\s*:\s*"([^"]+)"/.exec(models[models.length - 1]);
-      if (mm) data.model = mm[1];
+    const lines = readFileSync(entry.path, "utf8").split("\n");
+    let lastTurnLine = -1;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line) continue;
+      if (line.includes('"task_started"')) { data.turns++; lastTurnLine = i; }
+      if (line.includes('"token_count"')) data.requests++;
+      if (line.includes('"function_call"')) {
+        data.toolCalls++;
+        if (line.includes('"status":"failed"')) data.toolFails++;
+      }
+      if (line.includes('"model"')) {
+        const mm = /"model"\s*:\s*"([^"]+)"/.exec(line);
+        if (mm) data.model = mm[1];
+      }
     }
-    const calls = raw.match(/"type"\s*:\s*"function_call"/g);
-    data.toolCalls = calls ? calls.length : 0;
+    for (let i = lastTurnLine + 1; i < lines.length; i++) {
+      if (lines[i] && lines[i].includes('"token_count"')) data.turnReqs++;
+    }
   } catch { /* 读取失败保持空数据 */ }
   extrasCache.set(convId, { mtimeMs: st.mtimeMs, data });
   return data;
 }
 
-function fmtK(n, mode) {
-  n = Number(n) || 0;
-  if (mode === "cn") {
-    if (n >= 1e8) return (n / 1e8).toFixed(2).replace(/\.?0+$/, "") + "亿";
-    if (n >= 1e4) return (n / 1e4).toFixed(1).replace(/\.0$/, "") + "万";
-    return String(Math.round(n));
+// 今日合计：当日目录全部 rollout 汇总（mtime 缓存 + 60s 节流）
+const todayCache = { files: new Map(), data: null, scanAt: 0 };
+function todaySummary() {
+  if (todayCache.data && Date.now() - todayCache.scanAt < 60000) return todayCache.data;
+  const now = new Date();
+  const dir = path.join(
+    SESSION_ROOTS[0],
+    String(now.getFullYear()).padStart(4, "0"),
+    String(now.getMonth() + 1).padStart(2, "0"),
+    String(now.getDate()).padStart(2, "0"),
+  );
+  let files = [];
+  try { files = readdirSync(dir).filter((f) => f.endsWith(".jsonl")); } catch { return todayCache.data; }
+  let tokens = 0, turns = 0, requests = 0;
+  for (const f of files) {
+    const full = path.join(dir, f);
+    let st;
+    try { st = statSync(full); } catch { continue; }
+    const cached = todayCache.files.get(f);
+    if (cached && cached.mtimeMs === st.mtimeMs) {
+      tokens += cached.tokens; turns += cached.turns; requests += cached.requests;
+      continue;
+    }
+    const fd = { tokens: 0, turns: 0, requests: 0 };
+    try {
+      const lines = readFileSync(full, "utf8").split("\n");
+      for (const line of lines) {
+        if (!line) continue;
+        if (line.includes('"task_started"')) fd.turns++;
+        if (line.includes('"token_count"')) fd.requests++;
+        if (line.includes('"total_token_usage"')) {
+          // 同行还含 last_token_usage，须限定 total_token_usage 对象内的 total_tokens
+          const mm = /"total_token_usage":\{[^}]*"total_tokens":(\d+)/.exec(line);
+          if (mm) fd.tokens = Number(mm[1]);
+        }
+      }
+    } catch { /* 跳过坏文件 */ }
+    todayCache.files.set(f, { mtimeMs: st.mtimeMs, ...fd });
+    tokens += fd.tokens; turns += fd.turns; requests += fd.requests;
   }
-  if (n >= 1e9) return (n / 1e9).toFixed(1) + "B";
-  if (n >= 1e6) return (n / 1e6).toFixed(1) + "M";
-  if (n >= 1e5) return Math.round(n / 1e3) + "k";
-  if (n >= 1e3) return (n / 1e3).toFixed(1) + "k";
-  return String(Math.round(n));
-}
-
-function fmtCny(v) {
-  if (v === null || v === undefined || !Number.isFinite(Number(v))) return "—";
-  const n = Number(v);
-  if (n === 0) return "¥0";
-  if (n < 0.01) return "≈¥" + n.toFixed(5);
-  return "¥" + n.toFixed(2);
-}
-
-function costOf(usage, rates, modelName) {
-  if (!usage) return null;
-  const input = Number(usage.input_tokens) || 0;
-  const cached = Number(usage.cached_input_tokens) || 0;
-  const output = Number(usage.output_tokens) || 0;
-  if (input === 0 && output === 0) return null;
-  const r = rates[modelName] || rates[DEFAULT_MODEL] || {};
-  const inRateRaw = Number(r.input_per_million);
-  const cachedRateRaw = Number(r.cached_input_per_million);
-  const outRateRaw = Number(r.output_per_million);
-  const inRate = Number.isFinite(inRateRaw) ? inRateRaw : 1;
-  const cachedRate = Number.isFinite(cachedRateRaw) ? cachedRateRaw : 0.02;
-  const outRate = Number.isFinite(outRateRaw) ? outRateRaw : 2;
-  return ((input - cached) * inRate + cached * cachedRate + output * outRate) / 1e6;
-}
-
-function cachePct(usage) {
-  if (!usage) return null;
-  const input = Number(usage.input_tokens) || 0;
-  const cached = Number(usage.cached_input_tokens) || 0;
-  if (input <= 0) return null;
-  return (100 * cached) / input;
+  todayCache.data = { tokens, turns, requests };
+  todayCache.scanAt = Date.now();
+  return todayCache.data;
 }
 
 function buildLine(convId, ctx, tps, rates, fmt) {
@@ -620,17 +659,13 @@ function buildLine(convId, ctx, tps, rates, fmt) {
   if (parsed.sessionId && parsed.sessionId !== convId) {
     parsed = { total: null, last: null, contextWindow: null, sessionId: null };
   }
-  const extras = convId ? scanExtras(convId) : null;
-  const modelName = extras?.model || DEFAULT_MODEL;
+  const stats = convId ? scanExtras(convId) : null;
   const last = parsed.last || {};
   const total = parsed.total || {};
   // 上下文兜底：最新请求输入量 ≈ 当前上下文已用，窗口取 token_count 的 model_context_window
   const ctxUsed = ctx?.used ?? (Number(last.input_tokens) > 0 ? Number(last.input_tokens) : null);
   const ctxWin = ctx?.win ?? (Number(parsed.contextWindow) > 0 ? Number(parsed.contextWindow) : null);
   const effCtx = ctxUsed !== null && ctxWin !== null ? { used: ctxUsed, win: ctxWin } : ctx;
-  const cache = cachePct(last);
-  const costLast = costOf(last, rates, modelName);
-  const costTotal = costOf(total, rates, modelName);
   const hasLast = (Number(last.input_tokens) || 0) + (Number(last.output_tokens) || 0) > 0;
 
   const hasData = !!(convId && rollout && last.input_tokens);
@@ -641,18 +676,25 @@ function buildLine(convId, ctx, tps, rates, fmt) {
 
   const cachedIn = Number(last.cached_input_tokens) || 0;
   const reasoning = Number(last.reasoning_output_tokens) || 0;
-  const detailOf = {
-    model: `费率按费率卡 ${modelName} 计算`,
-    tps: "输出 token 生成速率，空闲时冻结最后值",
-    cache: cache === null ? "暂无缓存数据" : `缓存命中率 = 缓存读取 ${fmtK(cachedIn, fmt)} / 输入 ${fmtK(Number(last.input_tokens) || 0, fmt)}`,
-    tools: `本会话工具调用 ${extras?.toolCalls ?? 0} 次`,
-    turnCost: costLast === null ? "费率卡未配置该模型" : `最近一次请求费用（费率卡：${modelName}）`,
-    threadCost: costTotal === null ? "费率卡未配置该模型" : `当前对话累计费用（费率卡：${modelName}）`,
-  };
+  const turnTok = Number(last.total_tokens || 0);
+  const totalTok = Number(total.total_tokens || 0);
+  const today = todaySummary();
   const parts = [
-    { key: "model", icon: "◉", label: "", text: modelName, cls: "csl-model", detail: detailOf.model },
-    { key: "tps", icon: "⚡", label: "", text: tps ? `≈${tps} tps` : "—", cls: "csl-tps", detail: detailOf.tps },
-    { key: "cache", icon: "", label: "缓存", text: cache === null ? "—" : Math.round(cache) + "%", cls: "csl-cache", detail: detailOf.cache },
+    {
+      key: "tps", icon: "⚡", cls: "csl-tps",
+      text: tps ? `≈${tps} tps` : "—", sub: "",
+      detail: "输出 token 生成速率，空闲时冻结最后值",
+    },
+    {
+      key: "turn", icon: "💬", cls: "csl-turn",
+      text: fmtK(turnTok, fmt), sub: `${stats?.turnReqs ?? 0}次`,
+      detail: `本轮：输入 ${fmtK(last.input_tokens || 0, fmt)}（缓存 ${fmtK(cachedIn, fmt)}）→ 输出 ${fmtK(last.output_tokens || 0, fmt)}（含推理 ${fmtK(reasoning, fmt)}）`,
+    },
+    {
+      key: "session", icon: "🗨", cls: "csl-session",
+      text: fmtK(totalTok, fmt), sub: `${stats?.turns ?? 0}轮 ${stats?.requests ?? 0}次`,
+      detail: "当前对话累计 token / 对话轮数 / 请求次数",
+    },
   ];
   if (effCtx && effCtx.win) {
     const used = Number(effCtx.used) || 0;
@@ -661,24 +703,22 @@ function buildLine(convId, ctx, tps, rates, fmt) {
     const pctTxt = pct === null ? "—" : Math.round(pct) + "%";
     const cls = pct !== null && pct > 90 ? "csl-danger" : pct !== null && pct > 70 ? "csl-warn" : "csl-ctx";
     parts.push({
-      key: "ctx", icon: "▓", label: "上下文", cls,
-      text: `${fmtK(used, fmt)}/${fmtK(win, fmt)} ${pctTxt}`,
+      key: "ctx", icon: "▓", cls,
+      text: `${fmtK(used, fmt)}/${fmtK(win, fmt)} ${pctTxt}`, sub: "",
       detail: `窗口 ${fmtK(win, fmt)} · 已用 ${fmtK(used, fmt)}（${pctTxt}）`,
     });
-  } else {
-    parts.push({ key: "ctx", icon: "▓", label: "上下文", text: "—/—", cls: "csl-ctx", detail: "暂无上下文数据" });
   }
   parts.push({
-    key: "tokens",
-    icon: "",
-    label: "",
-    cls: "csl-tokens",
-    text: hasLast ? `${fmtK(last.input_tokens || 0, fmt)}→${fmtK(last.output_tokens || 0, fmt)}` : "—→—",
-    detail: hasLast ? `输入 ${fmtK(last.input_tokens || 0, fmt)}（缓存 ${fmtK(cachedIn, fmt)}）→ 输出 ${fmtK(last.output_tokens || 0, fmt)}（含推理 ${fmtK(reasoning, fmt)}）` : "暂无 token 统计",
+    key: "tools", icon: "🔧", cls: "csl-tools",
+    text: String(stats?.toolCalls ?? 0), sub: "",
+    fail: stats?.toolFails ?? 0,
+    detail: `本会话工具调用 ${stats?.toolCalls ?? 0} 次${stats?.toolFails ? `，失败 ${stats.toolFails} 次` : ""}`,
   });
-  parts.push({ key: "tools", icon: "⚙", label: "工具", text: String(extras?.toolCalls ?? 0), cls: "csl-tools", detail: detailOf.tools });
-  parts.push({ key: "turnCost", icon: "", label: "本轮", text: fmtCny(costLast), cls: "csl-turn", detail: detailOf.turnCost });
-  parts.push({ key: "threadCost", icon: "", label: "线程", text: fmtCny(costTotal), cls: "csl-thread", detail: detailOf.threadCost });
+  parts.push({
+    key: "today", icon: "📅", cls: "csl-today",
+    text: fmtK(today?.tokens ?? 0, fmt), sub: `${today?.turns ?? 0}轮 ${today?.requests ?? 0}次`,
+    detail: "今日所有会话合计 token / 轮数 / 请求次数",
+  });
   return { parts, hasData };
 }
 
