@@ -25,7 +25,7 @@ NODE_BIN="$(resolve_node || true)"
 
 cdp_alive() { curl -s -m 2 "http://127.0.0.1:${CDP_PORT}/json" >/dev/null 2>&1; }
 app_running() { pgrep -f "/Applications/ChatGPT.app/Contents/MacOS/ChatGPT" >/dev/null 2>&1; }
-injector_running() { pgrep -f "codex-statusbar/src/injector.mjs" >/dev/null 2>&1; }
+injector_running() { pgrep -f "injector.mjs" >/dev/null 2>&1; }
 
 start_injector() {
   if injector_running; then return 0; fi

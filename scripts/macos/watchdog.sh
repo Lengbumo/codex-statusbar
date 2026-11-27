@@ -15,7 +15,7 @@ log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $*" >>"$LOG"; }
 
 cdp_alive() { curl -s -m 2 "http://127.0.0.1:${TURN_STATS_CDP_PORT:-9224}/json" >/dev/null 2>&1; }
 app_running() { pgrep -f "/Applications/ChatGPT.app/Contents/MacOS/ChatGPT" >/dev/null 2>&1; }
-injector_running() { pgrep -f "codex-statusbar/src/injector.mjs" >/dev/null 2>&1; }
+injector_running() { pgrep -f "injector.mjs" >/dev/null 2>&1; }
 
 log "watchdog started (pid $$)"
 while true; do

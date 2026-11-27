@@ -25,7 +25,7 @@ const DEFAULT_MODEL = process.env.TURN_STATS_MODEL || "deepseek-v4-flash";
 // ---------- 页面注入脚本（幂等，随 tick 重发） ----------
 const INSTALL_SCRIPT = String.raw`
 (function () {
-  var VERSION = 11;
+  var VERSION = 12;
   if (window.__catStatuslineInstalled) {
     if (window.__catStatuslineVersion === VERSION) {
       try { window.__catStatuslineEnsure && window.__catStatuslineEnsure(); } catch (e) {}
@@ -45,7 +45,7 @@ const INSTALL_SCRIPT = String.raw`
     var st = document.createElement('style');
     st.id = 'cat-statusline-style';
     st.textContent =
-      '#cat-statusline{position:fixed;left:12px;right:12px;bottom:6px;display:flex;align-items:center;padding:4px 12px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Cascadia Mono",monospace;line-height:1.6;color:var(--color-token-text-secondary,#9aa1aa);white-space:nowrap;overflow:hidden;background:color-mix(in srgb,var(--color-token-bg-primary,#ffffff) 88%,transparent);backdrop-filter:blur(8px);border:1px solid color-mix(in srgb,var(--color-token-border,rgba(128,128,128,.3)) 60%,transparent);border-radius:8px;box-shadow:0 2px 12px rgba(0,0,0,.08);user-select:none;z-index:2147483000;transition:bottom .15s ease}' + '#cat-statusline #cat-statusline-text{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}' +
+      '#cat-statusline{position:fixed;left:12px;right:12px;bottom:6px;display:flex;align-items:center;padding:3px 12px 5px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Cascadia Mono",monospace;line-height:1.55;color:var(--color-token-text-secondary,#9aa1aa);white-space:nowrap;overflow:hidden;background:var(--color-token-bg-primary,#ffffff);border:1px solid color-mix(in srgb,var(--color-token-border,rgba(128,128,128,.28)) 55%,transparent);border-bottom:none;border-radius:10px 10px 0 0;user-select:none;z-index:2147483000;transition:bottom .12s ease}' + '#cat-statusline.csl-embedded{box-shadow:none}' + '#cat-statusline #cat-statusline-text{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}' +
       '#cat-statusline .csl-off{opacity:.55}' +
       '#cat-statusline .csl-seg{display:inline-flex;align-items:baseline;gap:3px}' +
       '#cat-statusline .csl-ico{opacity:.7;font-size:.92em}' +
@@ -66,6 +66,20 @@ const INSTALL_SCRIPT = String.raw`
       '#cat-statusline-settings input[type=number]{width:52px;background:transparent;border:1px solid rgba(128,128,128,.4);border-radius:6px;color:var(--color-token-text-primary,#1d1f24);padding:2px 4px}' +
       '#cat-statusline-settings button{margin-top:6px;background:#2c6ecb;border:none;border-radius:6px;color:#fff;padding:4px 0;cursor:pointer;font-size:12px}';
     (document.head || document.documentElement).appendChild(st);
+  }
+
+  // 输入框可见容器：.ProseMirror 向上找明显圆角 + 足够宽高的祖先（跨平台稳定，不依赖 form/按钮类名）
+  function composerBox() {
+    var pm = document.querySelector('.ProseMirror');
+    var el = pm;
+    for (var i = 0; el && i < 8; i++, el = el.parentElement) {
+      try {
+        var cs = getComputedStyle(el);
+        var r = el.getBoundingClientRect();
+        if (parseFloat(cs.borderRadius) >= 10 && r.width > 300 && r.height > 40) return el;
+      } catch (e) {}
+    }
+    return pm ? (pm.closest('form') || pm.parentElement) : null;
   }
 
   function composerHost() {
@@ -106,20 +120,24 @@ const INSTALL_SCRIPT = String.raw`
       window.__catStatuslineLastConv = cur;
       try { console.log('__catStatuslineRefresh'); } catch (e) {}
     }
-    // 位置：跟随输入框上方；输入框不存在（首页/设置）时贴窗口底部
-    var host = composerHost();
+    // 位置：与输入框容器左右对齐、紧贴其上边缘，视觉上嵌入输入框顶部；
+    // 输入框不存在（首页/设置）时横跨窗口底部
+    var host = composerBox();
     if (host) {
       var r = host.getBoundingClientRect();
-      node.style.left = Math.max(12, Math.min(r.left, window.innerWidth - 320)) + 'px';
+      node.style.left = Math.max(8, r.left) + 'px';
       node.style.right = 'auto';
-      node.style.width = 'auto';
-      node.style.maxWidth = (window.innerWidth - 24) + 'px';
-      node.style.bottom = Math.max(6, window.innerHeight - r.top + 4) + 'px';
+      node.style.width = r.width + 'px';
+      node.style.maxWidth = 'none';
+      node.style.bottom = Math.max(0, window.innerHeight - r.top) + 'px';
+      node.classList.add('csl-embedded');
     } else {
       node.style.left = '12px';
       node.style.right = '12px';
       node.style.width = 'auto';
+      node.style.maxWidth = 'none';
       node.style.bottom = '6px';
+      node.classList.remove('csl-embedded');
     }
   }
 
@@ -304,10 +322,11 @@ const INSTALL_SCRIPT = String.raw`
   // 双来源校验：都存在且一致才用；若仅有一个来源（新对话尚未生成侧边栏条目等），
   // 用唯一来源；两个来源都存在但不一致 → null（fail-closed，绝不串对话）
   function resolveConvId() {
+    // 侧边栏 selected 属性与界面渲染同源，是"当前显示对话"的权威信号；
+    // fiber 读输入框组件状态，切换对话后可能残留旧值（实测），仅在 sidebar 缺失时兜底。
     var a = sidebarConvId();
-    var b = fiberConvId();
-    if (a && b) return a === b ? a : null;
-    return a || b || null;
+    if (a) return a;
+    return fiberConvId() || null;
   }
   function readCtxUsage() {
     try {
